@@ -5,9 +5,11 @@ const GRID_HEIGHT = 21;
 const CANVAS_WIDTH = GRID_WIDTH * GRID_SIZE;
 const CANVAS_HEIGHT = GRID_HEIGHT * GRID_SIZE;
 
-const PLAYER_SPEED = 8; // frames between moves
-const GHOST_SPEED = 12; // frames between moves
+const PLAYER_SPEED = 2.5; // pixels per frame for smooth movement
+const GHOST_SPEED = 1.8; // pixels per frame for smooth movement
 const POWER_DURATION = 300; // frames (5 seconds at 60fps)
+const TARGET_FPS = 60;
+const FRAME_TIME = 1000 / TARGET_FPS; // milliseconds per frame
 
 // Game state
 let gameState = 'start';
@@ -19,6 +21,10 @@ let ghostMoveTimer = 0;
 let powerMode = false;
 let powerModeTimer = 0;
 let ghostsEaten = 0;
+let lastDotEatenTime = 0;
+let chompCheckInterval = null;
+let lastFrameTime = 0;
+let deltaAccumulator = 0;
 
 // Canvas setup
 const canvas = document.getElementById('gameCanvas');
@@ -29,6 +35,49 @@ canvas.height = CANVAS_HEIGHT;
 // Load Kiro logo
 const kiroImage = new Image();
 kiroImage.src = 'kiro-logo.png';
+
+// Load sound effects - create multiple instances for sounds that need to overlap
+const sounds = {
+    chomp: new Audio('040240758-fast-chomp-beeps.wav'),
+    bgMusic: new Audio('048802803-8bit-melody-10-version-1.wav'),
+    death: new Audio('082668554-retro-game-lose.wav')
+};
+
+// Setup looping for chomp sound
+sounds.chomp.loop = true;
+sounds.bgMusic.loop = true;
+
+// Function to play ghost respawn sound (creates new instance each time)
+function playGhostRespawnSound() {
+    const ghostSound = new Audio('079843895-gameplay-retro-ghost.wav');
+    ghostSound.play().catch(e => console.log('Ghost respawn sound error:', e));
+}
+
+// Function to play energizer pellet sound (creates new instance each time)
+function playEnergizerSound() {
+    const energizerSound = new Audio('089795750-8bit-game-win-01.wav');
+    energizerSound.play().catch(e => console.log('Energizer sound error:', e));
+}
+
+let isChomping = false;
+let bgMusicStarted = false;
+
+// Function to start background music (needs user interaction)
+function startBackgroundMusic() {
+    if (!bgMusicStarted) {
+        sounds.bgMusic.play().catch(e => console.log('Audio autoplay blocked:', e));
+        bgMusicStarted = true;
+    }
+}
+
+// Check if chomp sound should stop (no dots eaten in 250ms)
+function checkChompSound() {
+    if (isChomping && Date.now() - lastDotEatenTime > 250) {
+        sounds.chomp.pause();
+        sounds.chomp.currentTime = 0;
+        isChomping = false;
+    }
+}
 
 // Original maze template (1 = wall, 0 = dot, 2 = empty, 3 = power pellet)
 const originalMaze = [
@@ -58,20 +107,22 @@ const originalMaze = [
 // Working maze copy
 let maze = [];
 
-// Player
+// Player (using pixel coordinates for smooth movement)
 let player = {
-    x: 9,
-    y: 15,
+    x: 9 * GRID_SIZE,
+    y: 15 * GRID_SIZE,
+    gridX: 9,
+    gridY: 15,
     direction: null,
     nextDirection: null
 };
 
-// Ghosts
+// Ghosts (using pixel coordinates for smooth movement)
 let ghosts = [
-    { x: 8, y: 9, color: '#FF0000', direction: 'right' },
-    { x: 9, y: 9, color: '#FFB8FF', direction: 'left' },
-    { x: 10, y: 9, color: '#00FFFF', direction: 'up' },
-    { x: 9, y: 10, color: '#FFB852', direction: 'down' }
+    { x: 8 * GRID_SIZE, y: 9 * GRID_SIZE, gridX: 8, gridY: 9, color: '#FF0000', direction: 'right' },
+    { x: 9 * GRID_SIZE, y: 9 * GRID_SIZE, gridX: 9, gridY: 9, color: '#FFB8FF', direction: 'left' },
+    { x: 10 * GRID_SIZE, y: 9 * GRID_SIZE, gridX: 10, gridY: 9, color: '#00FFFF', direction: 'up' },
+    { x: 9 * GRID_SIZE, y: 10 * GRID_SIZE, gridX: 9, gridY: 10, color: '#FFB852', direction: 'down' }
 ];
 
 // Initialize game
@@ -81,18 +132,20 @@ function initGame() {
     
     // Reset player
     player = {
-        x: 9,
-        y: 15,
+        x: 9 * GRID_SIZE,
+        y: 15 * GRID_SIZE,
+        gridX: 9,
+        gridY: 15,
         direction: null,
         nextDirection: null
     };
     
     // Reset ghosts
     ghosts = [
-        { x: 8, y: 9, color: '#FF0000', direction: 'right' },
-        { x: 9, y: 9, color: '#FFB8FF', direction: 'left' },
-        { x: 10, y: 9, color: '#00FFFF', direction: 'up' },
-        { x: 9, y: 10, color: '#FFB852', direction: 'down' }
+        { x: 8 * GRID_SIZE, y: 9 * GRID_SIZE, gridX: 8, gridY: 9, color: '#FF0000', direction: 'right' },
+        { x: 9 * GRID_SIZE, y: 9 * GRID_SIZE, gridX: 9, gridY: 9, color: '#FFB8FF', direction: 'left' },
+        { x: 10 * GRID_SIZE, y: 9 * GRID_SIZE, gridX: 10, gridY: 9, color: '#00FFFF', direction: 'up' },
+        { x: 9 * GRID_SIZE, y: 10 * GRID_SIZE, gridX: 9, gridY: 10, color: '#FFB852', direction: 'down' }
     ];
     
     // Reset timers
@@ -140,9 +193,16 @@ document.addEventListener('keydown', (e) => {
     if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
         e.preventDefault();
         
+        // Start background music on first interaction
+        startBackgroundMusic();
+        
         if (gameState === 'start') {
             gameState = 'playing';
             hideMessage();
+            // Start chomp check interval
+            if (!chompCheckInterval) {
+                chompCheckInterval = setInterval(checkChompSound, 50);
+            }
         } else if (gameState === 'levelComplete') {
             gameState = 'playing';
             hideMessage();
@@ -165,18 +225,22 @@ document.addEventListener('keydown', (e) => {
 });
 
 // Movement functions
-function canMove(x, y) {
-    if (x < 0 || x >= GRID_WIDTH || y < 0 || y >= GRID_HEIGHT) return false;
-    return maze[y][x] !== 1;
+function canMove(gridX, gridY) {
+    if (gridX < 0 || gridX >= GRID_WIDTH || gridY < 0 || gridY >= GRID_HEIGHT) return false;
+    return maze[gridY][gridX] !== 1;
 }
 
 function movePlayer() {
     if (!player.direction && !player.nextDirection) return;
     
-    // Try to change direction
-    if (player.nextDirection) {
-        const nextPos = getNextPosition(player.x, player.y, player.nextDirection);
-        if (canMove(nextPos.x, nextPos.y)) {
+    // Update grid position based on pixel position
+    player.gridX = Math.round(player.x / GRID_SIZE);
+    player.gridY = Math.round(player.y / GRID_SIZE);
+    
+    // Try to change direction when aligned with grid
+    if (player.nextDirection && player.x % GRID_SIZE === 0 && player.y % GRID_SIZE === 0) {
+        const nextGridPos = getNextGridPosition(player.gridX, player.gridY, player.nextDirection);
+        if (canMove(nextGridPos.x, nextGridPos.y)) {
             player.direction = player.nextDirection;
             player.nextDirection = null;
         }
@@ -184,34 +248,104 @@ function movePlayer() {
     
     // Move in current direction
     if (player.direction) {
-        const nextPos = getNextPosition(player.x, player.y, player.direction);
-        if (canMove(nextPos.x, nextPos.y)) {
-            player.x = nextPos.x;
-            player.y = nextPos.y;
-            
-            // Collect dots
-            if (maze[player.y][player.x] === 0) {
-                maze[player.y][player.x] = 2;
+        // Store previous position
+        const prevX = player.x;
+        const prevY = player.y;
+        
+        let velocityX = 0;
+        let velocityY = 0;
+        
+        if (player.direction === 'up') velocityY = -PLAYER_SPEED;
+        if (player.direction === 'down') velocityY = PLAYER_SPEED;
+        if (player.direction === 'left') velocityX = -PLAYER_SPEED;
+        if (player.direction === 'right') velocityX = PLAYER_SPEED;
+        
+        // Apply velocity
+        player.x += velocityX;
+        player.y += velocityY;
+        
+        // Check if the new position collides with walls (check all four corners of bounding box)
+        const topLeftGridX = Math.floor(player.x / GRID_SIZE);
+        const topLeftGridY = Math.floor(player.y / GRID_SIZE);
+        const topRightGridX = Math.floor((player.x + GRID_SIZE - 1) / GRID_SIZE);
+        const topRightGridY = Math.floor(player.y / GRID_SIZE);
+        const bottomLeftGridX = Math.floor(player.x / GRID_SIZE);
+        const bottomLeftGridY = Math.floor((player.y + GRID_SIZE - 1) / GRID_SIZE);
+        const bottomRightGridX = Math.floor((player.x + GRID_SIZE - 1) / GRID_SIZE);
+        const bottomRightGridY = Math.floor((player.y + GRID_SIZE - 1) / GRID_SIZE);
+        
+        // Check if any corner collides with a wall
+        const hasCollision = !canMove(topLeftGridX, topLeftGridY) ||
+                            !canMove(topRightGridX, topRightGridY) ||
+                            !canMove(bottomLeftGridX, bottomLeftGridY) ||
+                            !canMove(bottomRightGridX, bottomRightGridY);
+        
+        // If we collided with a wall, reset to previous position and stop
+        if (hasCollision) {
+            player.x = prevX;
+            player.y = prevY;
+            player.direction = null;
+        }
+        
+        // Update grid position
+        player.gridX = Math.round(player.x / GRID_SIZE);
+        player.gridY = Math.round(player.y / GRID_SIZE);
+        
+        // Snap to grid when very close
+        if (Math.abs(player.x - player.gridX * GRID_SIZE) < 1) {
+            player.x = player.gridX * GRID_SIZE;
+        }
+        if (Math.abs(player.y - player.gridY * GRID_SIZE) < 1) {
+            player.y = player.gridY * GRID_SIZE;
+        }
+        
+        // Collect dots (only when centered on grid)
+        if (player.x === player.gridX * GRID_SIZE && player.y === player.gridY * GRID_SIZE) {
+            if (maze[player.gridY][player.gridX] === 0) {
+                maze[player.gridY][player.gridX] = 2;
                 score += 10;
                 updateUI();
                 checkLevelComplete();
+                
+                // Update last dot eaten time
+                lastDotEatenTime = Date.now();
+                
+                // Start chomp sound if not playing
+                if (!isChomping) {
+                    sounds.chomp.currentTime = 0;
+                    sounds.chomp.play().catch(e => console.log('Chomp sound error:', e));
+                    isChomping = true;
+                }
             }
             
             // Collect power pellet
-            if (maze[player.y][player.x] === 3) {
-                maze[player.y][player.x] = 2;
+            if (maze[player.gridY][player.gridX] === 3) {
+                maze[player.gridY][player.gridX] = 2;
                 score += 50;
                 powerMode = true;
                 powerModeTimer = POWER_DURATION;
                 ghostsEaten = 0;
                 updateUI();
+                
+                // Play energizer sound
+                playEnergizerSound();
+                
+                // Update last dot eaten time
+                lastDotEatenTime = Date.now();
+                
+                // Start chomp sound if not playing
+                if (!isChomping) {
+                    sounds.chomp.currentTime = 0;
+                    sounds.chomp.play().catch(e => console.log('Chomp sound error:', e));
+                    isChomping = true;
+                }
             }
         }
     }
 }
 
-function getNextPosition(x, y, direction) {
-    let newX = x, newY = y;
+function getNextGridPosition(gridX, gridY, direction) {
+    let newX = gridX, newY = gridY;
     if (direction === 'up') newY--;
     if (direction === 'down') newY++;
     if (direction === 'left') newX--;
@@ -221,9 +355,13 @@ function getNextPosition(x, y, direction) {
 
 function moveGhosts() {
     ghosts.forEach(ghost => {
+        // Update grid position based on pixel position
+        ghost.gridX = Math.round(ghost.x / GRID_SIZE);
+        ghost.gridY = Math.round(ghost.y / GRID_SIZE);
+        
         // Calculate distance to player
-        const dx = (player.x - ghost.x) * GRID_SIZE;
-        const dy = (player.y - ghost.y) * GRID_SIZE;
+        const dx = player.x - ghost.x;
+        const dy = player.y - ghost.y;
         const distance = Math.sqrt(dx * dx + dy * dy);
         
         let shouldChase = false;
@@ -231,47 +369,79 @@ function moveGhosts() {
             shouldChase = Math.random() < 0.6;
         }
         
-        let possibleDirections = [];
-        const directions = ['up', 'down', 'left', 'right'];
-        
-        directions.forEach(dir => {
-            const nextPos = getNextPosition(ghost.x, ghost.y, dir);
-            if (canMove(nextPos.x, nextPos.y)) {
-                possibleDirections.push(dir);
-            }
-        });
-        
-        if (possibleDirections.length === 0) return;
-        
-        if (shouldChase && possibleDirections.length > 0) {
-            // Chase player
-            let bestDir = possibleDirections[0];
-            let bestDist = Infinity;
+        // Only change direction when aligned with grid
+        if (ghost.x % GRID_SIZE === 0 && ghost.y % GRID_SIZE === 0) {
+            let possibleDirections = [];
+            const directions = ['up', 'down', 'left', 'right'];
             
-            possibleDirections.forEach(dir => {
-                const nextPos = getNextPosition(ghost.x, ghost.y, dir);
-                const dist = Math.abs(player.x - nextPos.x) + Math.abs(player.y - nextPos.y);
-                if (dist < bestDist) {
-                    bestDist = dist;
-                    bestDir = dir;
+            directions.forEach(dir => {
+                const nextPos = getNextGridPosition(ghost.gridX, ghost.gridY, dir);
+                if (canMove(nextPos.x, nextPos.y)) {
+                    possibleDirections.push(dir);
                 }
             });
             
-            ghost.direction = bestDir;
-        } else {
-            // Random movement
-            ghost.direction = possibleDirections[Math.floor(Math.random() * possibleDirections.length)];
+            if (possibleDirections.length === 0) return;
+            
+            if (shouldChase && possibleDirections.length > 0) {
+                // Chase player
+                let bestDir = possibleDirections[0];
+                let bestDist = Infinity;
+                
+                possibleDirections.forEach(dir => {
+                    const nextPos = getNextGridPosition(ghost.gridX, ghost.gridY, dir);
+                    const dist = Math.abs(player.gridX - nextPos.x) + Math.abs(player.gridY - nextPos.y);
+                    if (dist < bestDist) {
+                        bestDist = dist;
+                        bestDir = dir;
+                    }
+                });
+                
+                ghost.direction = bestDir;
+            } else {
+                // Random movement
+                ghost.direction = possibleDirections[Math.floor(Math.random() * possibleDirections.length)];
+            }
         }
         
-        const nextPos = getNextPosition(ghost.x, ghost.y, ghost.direction);
-        ghost.x = nextPos.x;
-        ghost.y = nextPos.y;
+        // Move smoothly in current direction
+        if (ghost.direction) {
+            let newX = ghost.x;
+            let newY = ghost.y;
+            
+            if (ghost.direction === 'up') newY -= GHOST_SPEED;
+            if (ghost.direction === 'down') newY += GHOST_SPEED;
+            if (ghost.direction === 'left') newX -= GHOST_SPEED;
+            if (ghost.direction === 'right') newX += GHOST_SPEED;
+            
+            // Simple collision check - check the center grid position
+            const centerGridX = Math.floor((newX + GRID_SIZE / 2) / GRID_SIZE);
+            const centerGridY = Math.floor((newY + GRID_SIZE / 2) / GRID_SIZE);
+            
+            if (canMove(centerGridX, centerGridY)) {
+                ghost.x = newX;
+                ghost.y = newY;
+                
+                // Snap to grid when very close
+                if (Math.abs(ghost.x - ghost.gridX * GRID_SIZE) < 1) {
+                    ghost.x = ghost.gridX * GRID_SIZE;
+                }
+                if (Math.abs(ghost.y - ghost.gridY * GRID_SIZE) < 1) {
+                    ghost.y = ghost.gridY * GRID_SIZE;
+                }
+            }
+        }
     });
 }
 
 function checkCollisions() {
     ghosts.forEach((ghost, index) => {
-        if (ghost.x === player.x && ghost.y === player.y) {
+        // Check collision using distance (within half a grid cell)
+        const dx = ghost.x - player.x;
+        const dy = ghost.y - player.y;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+        
+        if (distance < GRID_SIZE / 2) {
             if (powerMode) {
                 // Eat ghost
                 const points = [200, 400, 800, 1600][ghostsEaten];
@@ -279,10 +449,24 @@ function checkCollisions() {
                 ghostsEaten++;
                 updateUI();
                 
+                // Play ghost respawn sound
+                playGhostRespawnSound();
+                
                 // Respawn ghost
-                ghost.x = 9;
-                ghost.y = 9;
+                ghost.x = 9 * GRID_SIZE;
+                ghost.y = 9 * GRID_SIZE;
+                ghost.gridX = 9;
+                ghost.gridY = 9;
             } else {
+                // Stop chomp sound
+                sounds.chomp.pause();
+                sounds.chomp.currentTime = 0;
+                isChomping = false;
+                
+                // Play death sound
+                sounds.death.currentTime = 0;
+                sounds.death.play().catch(e => console.log('Death sound error:', e));
+                
                 // Lose life
                 lives--;
                 updateUI();
@@ -292,14 +476,24 @@ function checkCollisions() {
                     showMessage('GAME OVER<br>Press any arrow key to restart');
                 } else {
                     // Reset positions
-                    player.x = 9;
-                    player.y = 15;
+                    player.x = 9 * GRID_SIZE;
+                    player.y = 15 * GRID_SIZE;
+                    player.gridX = 9;
+                    player.gridY = 15;
                     player.direction = null;
                     player.nextDirection = null;
                     
                     ghosts.forEach((g, i) => {
-                        g.x = [8, 9, 10, 9][i];
-                        g.y = [9, 9, 9, 10][i];
+                        const gridPositions = [
+                            { x: 8, y: 9 },
+                            { x: 9, y: 9 },
+                            { x: 10, y: 9 },
+                            { x: 9, y: 10 }
+                        ];
+                        g.x = gridPositions[i].x * GRID_SIZE;
+                        g.y = gridPositions[i].y * GRID_SIZE;
+                        g.gridX = gridPositions[i].x;
+                        g.gridY = gridPositions[i].y;
                     });
                 }
             }
@@ -360,55 +554,57 @@ function draw() {
             ctx.fillStyle = ghost.color;
         }
         ctx.beginPath();
-        ctx.arc(ghost.x * GRID_SIZE + GRID_SIZE / 2, ghost.y * GRID_SIZE + GRID_SIZE / 2, GRID_SIZE / 2 - 2, 0, Math.PI * 2);
+        ctx.arc(ghost.x + GRID_SIZE / 2, ghost.y + GRID_SIZE / 2, GRID_SIZE / 2 - 2, 0, Math.PI * 2);
         ctx.fill();
         
         // Eyes
         ctx.fillStyle = '#FFF';
         ctx.beginPath();
-        ctx.arc(ghost.x * GRID_SIZE + GRID_SIZE / 2 - 5, ghost.y * GRID_SIZE + GRID_SIZE / 2 - 3, 3, 0, Math.PI * 2);
-        ctx.arc(ghost.x * GRID_SIZE + GRID_SIZE / 2 + 5, ghost.y * GRID_SIZE + GRID_SIZE / 2 - 3, 3, 0, Math.PI * 2);
+        ctx.arc(ghost.x + GRID_SIZE / 2 - 5, ghost.y + GRID_SIZE / 2 - 3, 3, 0, Math.PI * 2);
+        ctx.arc(ghost.x + GRID_SIZE / 2 + 5, ghost.y + GRID_SIZE / 2 - 3, 3, 0, Math.PI * 2);
         ctx.fill();
     });
     
     // Draw player (Kiro)
     if (kiroImage.complete) {
-        ctx.drawImage(kiroImage, player.x * GRID_SIZE + 2, player.y * GRID_SIZE + 2, GRID_SIZE - 4, GRID_SIZE - 4);
+        ctx.drawImage(kiroImage, player.x + 2, player.y + 2, GRID_SIZE - 4, GRID_SIZE - 4);
     } else {
         // Fallback if image not loaded
         ctx.fillStyle = '#790ECB';
         ctx.beginPath();
-        ctx.arc(player.x * GRID_SIZE + GRID_SIZE / 2, player.y * GRID_SIZE + GRID_SIZE / 2, GRID_SIZE / 2 - 2, 0, Math.PI * 2);
+        ctx.arc(player.x + GRID_SIZE / 2, player.y + GRID_SIZE / 2, GRID_SIZE / 2 - 2, 0, Math.PI * 2);
         ctx.fill();
     }
 }
 
-// Game loop
-function gameLoop() {
-    if (gameState === 'playing') {
-        // Update power mode
-        if (powerMode) {
-            powerModeTimer--;
-            if (powerModeTimer <= 0) {
-                powerMode = false;
+// Game loop with delta time for consistent speed across devices
+function gameLoop(currentTime) {
+    // Calculate delta time
+    if (!lastFrameTime) lastFrameTime = currentTime;
+    const deltaTime = currentTime - lastFrameTime;
+    lastFrameTime = currentTime;
+    
+    // Accumulate delta time
+    deltaAccumulator += deltaTime;
+    
+    // Update game logic at fixed time steps
+    while (deltaAccumulator >= FRAME_TIME) {
+        if (gameState === 'playing') {
+            // Update power mode
+            if (powerMode) {
+                powerModeTimer--;
+                if (powerModeTimer <= 0) {
+                    powerMode = false;
+                }
             }
-        }
-        
-        // Move player
-        playerMoveTimer++;
-        if (playerMoveTimer >= PLAYER_SPEED) {
-            playerMoveTimer = 0;
+            
+            // Move player and ghosts every frame for smooth movement
             movePlayer();
-        }
-        
-        // Move ghosts
-        ghostMoveTimer++;
-        if (ghostMoveTimer >= GHOST_SPEED) {
-            ghostMoveTimer = 0;
             moveGhosts();
+            checkCollisions();
         }
         
-        checkCollisions();
+        deltaAccumulator -= FRAME_TIME;
     }
     
     draw();
@@ -418,4 +614,4 @@ function gameLoop() {
 // Start game
 initGame();
 showMessage('PAC-KIRO<br><br>Use arrow keys to move!<br>Press any arrow key to start');
-gameLoop();
+requestAnimationFrame(gameLoop);
