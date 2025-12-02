@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pac-Kiro Game</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="game-container">
+        <div class="game-header">
+            <div class="score-display">
+                <span class="label">SCORE</span>
+                <span id="score">0</span>
+            </div>
+            <div class="lives-display">
+                <span class="label">LIVES</span>
+                <span id="lives">3</span>
+            </div>
+            <div class="level-display">
+                <span class="label">LEVEL</span>
+                <span id="level">1</span>
+            </div>
+        </div>
+        <canvas id="gameCanvas"></canvas>
+        <div id="message" class="message"></div>
+    </div>
+    <script src="game.js"></script>
+</body>
+</html>
