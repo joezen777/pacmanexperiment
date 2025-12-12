@@ -122,7 +122,7 @@ let ghosts = [
     { x: 8 * GRID_SIZE, y: 9 * GRID_SIZE, gridX: 8, gridY: 9, color: '#FF0000', direction: 'right' },
     { x: 9 * GRID_SIZE, y: 9 * GRID_SIZE, gridX: 9, gridY: 9, color: '#FFB8FF', direction: 'left' },
     { x: 10 * GRID_SIZE, y: 9 * GRID_SIZE, gridX: 10, gridY: 9, color: '#00FFFF', direction: 'up' },
-    { x: 9 * GRID_SIZE, y: 10 * GRID_SIZE, gridX: 9, gridY: 10, color: '#FFB852', direction: 'down' }
+    { x: 9 * GRID_SIZE, y: 11 * GRID_SIZE, gridX: 9, gridY: 11, color: '#FFB852', direction: 'down' }
 ];
 
 // Initialize game
@@ -145,7 +145,7 @@ function initGame() {
         { x: 8 * GRID_SIZE, y: 9 * GRID_SIZE, gridX: 8, gridY: 9, color: '#FF0000', direction: 'right' },
         { x: 9 * GRID_SIZE, y: 9 * GRID_SIZE, gridX: 9, gridY: 9, color: '#FFB8FF', direction: 'left' },
         { x: 10 * GRID_SIZE, y: 9 * GRID_SIZE, gridX: 10, gridY: 9, color: '#00FFFF', direction: 'up' },
-        { x: 9 * GRID_SIZE, y: 10 * GRID_SIZE, gridX: 9, gridY: 10, color: '#FFB852', direction: 'down' }
+        { x: 9 * GRID_SIZE, y: 11 * GRID_SIZE, gridX: 9, gridY: 11, color: '#FFB852', direction: 'down' }
     ];
     
     // Reset timers
@@ -280,8 +280,17 @@ function movePlayer() {
                             !canMove(bottomLeftGridX, bottomLeftGridY) ||
                             !canMove(bottomRightGridX, bottomRightGridY);
         
-        // If we collided with a wall, reset to previous position and stop
-        if (hasCollision) {
+        // Check if collision is at the left or right border for teleport
+        if (hasCollision && (topLeftGridX < 0 || topRightGridX < 0 || bottomLeftGridX < 0 || bottomRightGridX < 0)) {
+            // Teleport to right side
+            player.x = CANVAS_WIDTH - GRID_SIZE;
+        }
+        else if (hasCollision && (topLeftGridX >= GRID_WIDTH || topRightGridX >= GRID_WIDTH || bottomLeftGridX >= GRID_WIDTH || bottomRightGridX >= GRID_WIDTH)) {
+            // Teleport to left side
+            player.x = 0;
+        }
+        // If we collided with a wall (not border), reset to previous position and stop
+        else if (hasCollision) {
             player.x = prevX;
             player.y = prevY;
             player.direction = null;
@@ -430,6 +439,13 @@ function moveGhosts() {
                     ghost.y = ghost.gridY * GRID_SIZE;
                 }
             }
+            
+            // Teleport logic for left/right screen wrapping
+            if (ghost.x + GRID_SIZE <= 0) {
+                ghost.x = CANVAS_WIDTH - GRID_SIZE;
+            } else if (ghost.x >= CANVAS_WIDTH) {
+                ghost.x = 0;
+            }
         }
     });
 }
@@ -488,7 +504,7 @@ function checkCollisions() {
                             { x: 8, y: 9 },
                             { x: 9, y: 9 },
                             { x: 10, y: 9 },
-                            { x: 9, y: 10 }
+                            { x: 9, y: 11 }
                         ];
                         g.x = gridPositions[i].x * GRID_SIZE;
                         g.y = gridPositions[i].y * GRID_SIZE;
