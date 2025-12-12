@@ -41,12 +41,14 @@ kiroImage.src = 'kiro-logo.png';
 const sounds = {
     chomp: new Audio('040240758-fast-chomp-beeps.wav'),
     bgMusic: new Audio('048802803-8bit-melody-10-version-1.wav'),
+    powerMusic: new Audio('286360292-8-bit-legend-video-game-star-s.wav'),
     death: new Audio('082668554-retro-game-lose.wav')
 };
 
-// Setup looping for chomp sound
+// Setup looping for sounds
 sounds.chomp.loop = true;
 sounds.bgMusic.loop = true;
+sounds.powerMusic.loop = true;
 
 // Function to play ghost respawn sound (creates new instance each time)
 function playGhostRespawnSound() {
@@ -389,6 +391,11 @@ function movePlayer(player, otherPlayer, isKiro) {
                 ghostsEaten = 0;
                 updateUI();
                 
+                // Switch to power mode music
+                sounds.bgMusic.pause();
+                sounds.powerMusic.currentTime = 0;
+                sounds.powerMusic.play().catch(e => console.log('Power music error:', e));
+                
                 // Play energizer sound
                 playEnergizerSound();
                 
@@ -703,6 +710,11 @@ function gameLoop(currentTime) {
                 powerModeTimer--;
                 if (powerModeTimer <= 0) {
                     powerMode = false;
+                    
+                    // Switch back to normal background music
+                    sounds.powerMusic.pause();
+                    sounds.powerMusic.currentTime = 0;
+                    sounds.bgMusic.play().catch(e => console.log('Background music error:', e));
                 }
             }
             
