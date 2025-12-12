@@ -13,7 +13,8 @@ const FRAME_TIME = 1000 / TARGET_FPS; // milliseconds per frame
 
 // Game state
 let gameState = 'start';
-let score = 0;
+let kiroScore = 0;
+let samiroScore = 0;
 let lives = 3;
 let level = 1;
 let playerMoveTimer = 0;
@@ -40,12 +41,14 @@ kiroImage.src = 'kiro-logo.png';
 const sounds = {
     chomp: new Audio('040240758-fast-chomp-beeps.wav'),
     bgMusic: new Audio('048802803-8bit-melody-10-version-1.wav'),
+    powerMusic: new Audio('286360292-8-bit-legend-video-game-star-s.wav'),
     death: new Audio('082668554-retro-game-lose.wav')
 };
 
-// Setup looping for chomp sound
+// Setup looping for sounds
 sounds.chomp.loop = true;
 sounds.bgMusic.loop = true;
+sounds.powerMusic.loop = true;
 
 // Function to play ghost respawn sound (creates new instance each time)
 function playGhostRespawnSound() {
@@ -107,12 +110,21 @@ const originalMaze = [
 // Working maze copy
 let maze = [];
 
-// Player (using pixel coordinates for smooth movement)
-let player = {
-    x: 9 * GRID_SIZE,
-    y: 15 * GRID_SIZE,
-    gridX: 9,
-    gridY: 15,
+// Players (using pixel coordinates for smooth movement)
+let kiro = {
+    x: 1 * GRID_SIZE,
+    y: 13 * GRID_SIZE,
+    gridX: 1,
+    gridY: 13,
+    direction: null,
+    nextDirection: null
+};
+
+let samiro = {
+    x: 17 * GRID_SIZE,
+    y: 13 * GRID_SIZE,
+    gridX: 17,
+    gridY: 13,
     direction: null,
     nextDirection: null
 };
@@ -122,7 +134,7 @@ let ghosts = [
     { x: 8 * GRID_SIZE, y: 9 * GRID_SIZE, gridX: 8, gridY: 9, color: '#FF0000', direction: 'right' },
     { x: 9 * GRID_SIZE, y: 9 * GRID_SIZE, gridX: 9, gridY: 9, color: '#FFB8FF', direction: 'left' },
     { x: 10 * GRID_SIZE, y: 9 * GRID_SIZE, gridX: 10, gridY: 9, color: '#00FFFF', direction: 'up' },
-    { x: 9 * GRID_SIZE, y: 10 * GRID_SIZE, gridX: 9, gridY: 10, color: '#FFB852', direction: 'down' }
+    { x: 9 * GRID_SIZE, y: 11 * GRID_SIZE, gridX: 9, gridY: 11, color: '#FFB852', direction: 'down' }
 ];
 
 // Initialize game
@@ -130,12 +142,21 @@ function initGame() {
     // Copy original maze
     maze = originalMaze.map(row => [...row]);
     
-    // Reset player
-    player = {
-        x: 9 * GRID_SIZE,
-        y: 15 * GRID_SIZE,
-        gridX: 9,
-        gridY: 15,
+    // Reset players
+    kiro = {
+        x: 1 * GRID_SIZE,
+        y: 13 * GRID_SIZE,
+        gridX: 1,
+        gridY: 13,
+        direction: null,
+        nextDirection: null
+    };
+    
+    samiro = {
+        x: 17 * GRID_SIZE,
+        y: 13 * GRID_SIZE,
+        gridX: 17,
+        gridY: 13,
         direction: null,
         nextDirection: null
     };
@@ -145,7 +166,7 @@ function initGame() {
         { x: 8 * GRID_SIZE, y: 9 * GRID_SIZE, gridX: 8, gridY: 9, color: '#FF0000', direction: 'right' },
         { x: 9 * GRID_SIZE, y: 9 * GRID_SIZE, gridX: 9, gridY: 9, color: '#FFB8FF', direction: 'left' },
         { x: 10 * GRID_SIZE, y: 9 * GRID_SIZE, gridX: 10, gridY: 9, color: '#00FFFF', direction: 'up' },
-        { x: 9 * GRID_SIZE, y: 10 * GRID_SIZE, gridX: 9, gridY: 10, color: '#FFB852', direction: 'down' }
+        { x: 9 * GRID_SIZE, y: 11 * GRID_SIZE, gridX: 9, gridY: 11, color: '#FFB852', direction: 'down' }
     ];
     
     // Reset timers
@@ -172,7 +193,8 @@ function nextLevel() {
 
 // UI updates
 function updateUI() {
-    document.getElementById('score').textContent = score;
+    document.getElementById('kiroScore').textContent = kiroScore;
+    document.getElementById('samiroScore').textContent = samiroScore;
     document.getElementById('lives').textContent = lives;
     document.getElementById('level').textContent = level;
 }
@@ -190,7 +212,9 @@ function hideMessage() {
 
 // Input handling
 document.addEventListener('keydown', (e) => {
-    if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
+    const gameKeys = ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'w', 'a', 's', 'd', 'i', 'j', 'k', 'l'];
+    
+    if (gameKeys.includes(e.key)) {
         e.preventDefault();
         
         // Start background music on first interaction
@@ -208,7 +232,8 @@ document.addEventListener('keydown', (e) => {
             hideMessage();
         } else if (gameState === 'gameOver') {
             // Restart game
-            score = 0;
+            kiroScore = 0;
+            samiroScore = 0;
             lives = 3;
             level = 1;
             resetLevel();
@@ -216,11 +241,17 @@ document.addEventListener('keydown', (e) => {
             return;
         }
         
-        // Set next direction
-        if (e.key === 'ArrowUp') player.nextDirection = 'up';
-        if (e.key === 'ArrowDown') player.nextDirection = 'down';
-        if (e.key === 'ArrowLeft') player.nextDirection = 'left';
-        if (e.key === 'ArrowRight') player.nextDirection = 'right';
+        // Kiro controls (WASD)
+        if (e.key === 'w') kiro.nextDirection = 'up';
+        if (e.key === 's') kiro.nextDirection = 'down';
+        if (e.key === 'a') kiro.nextDirection = 'left';
+        if (e.key === 'd') kiro.nextDirection = 'right';
+        
+        // Samiro controls (Arrow keys or IJKL)
+        if (e.key === 'ArrowUp' || e.key === 'i') samiro.nextDirection = 'up';
+        if (e.key === 'ArrowDown' || e.key === 'k') samiro.nextDirection = 'down';
+        if (e.key === 'ArrowLeft' || e.key === 'j') samiro.nextDirection = 'left';
+        if (e.key === 'ArrowRight' || e.key === 'l') samiro.nextDirection = 'right';
     }
 });
 
@@ -230,7 +261,7 @@ function canMove(gridX, gridY) {
     return maze[gridY][gridX] !== 1;
 }
 
-function movePlayer() {
+function movePlayer(player, otherPlayer, isKiro) {
     if (!player.direction && !player.nextDirection) return;
     
     // Update grid position based on pixel position
@@ -280,8 +311,33 @@ function movePlayer() {
                             !canMove(bottomLeftGridX, bottomLeftGridY) ||
                             !canMove(bottomRightGridX, bottomRightGridY);
         
-        // If we collided with a wall, reset to previous position and stop
-        if (hasCollision) {
+        // Check for collision with other player
+        if (otherPlayer) {
+            const dx = player.x - otherPlayer.x;
+            const dy = player.y - otherPlayer.y;
+            const playerDistance = Math.sqrt(dx * dx + dy * dy);
+            
+            if (playerDistance < GRID_SIZE) {
+                // Players collided - stop both
+                player.x = prevX;
+                player.y = prevY;
+                player.direction = null;
+                otherPlayer.direction = null;
+                return;
+            }
+        }
+        
+        // Check if collision is at the left or right border for teleport
+        if (hasCollision && (topLeftGridX < 0 || topRightGridX < 0 || bottomLeftGridX < 0 || bottomRightGridX < 0)) {
+            // Teleport to right side
+            player.x = CANVAS_WIDTH - GRID_SIZE;
+        }
+        else if (hasCollision && (topLeftGridX >= GRID_WIDTH || topRightGridX >= GRID_WIDTH || bottomLeftGridX >= GRID_WIDTH || bottomRightGridX >= GRID_WIDTH)) {
+            // Teleport to left side
+            player.x = 0;
+        }
+        // If we collided with a wall (not border), reset to previous position and stop
+        else if (hasCollision) {
             player.x = prevX;
             player.y = prevY;
             player.direction = null;
@@ -303,7 +359,11 @@ function movePlayer() {
         if (player.x === player.gridX * GRID_SIZE && player.y === player.gridY * GRID_SIZE) {
             if (maze[player.gridY][player.gridX] === 0) {
                 maze[player.gridY][player.gridX] = 2;
-                score += 10;
+                if (isKiro) {
+                    kiroScore += 10;
+                } else {
+                    samiroScore += 10;
+                }
                 updateUI();
                 checkLevelComplete();
                 
@@ -321,11 +381,20 @@ function movePlayer() {
             // Collect power pellet
             if (maze[player.gridY][player.gridX] === 3) {
                 maze[player.gridY][player.gridX] = 2;
-                score += 50;
+                if (isKiro) {
+                    kiroScore += 50;
+                } else {
+                    samiroScore += 50;
+                }
                 powerMode = true;
                 powerModeTimer = POWER_DURATION;
                 ghostsEaten = 0;
                 updateUI();
+                
+                // Switch to power mode music
+                sounds.bgMusic.pause();
+                sounds.powerMusic.currentTime = 0;
+                sounds.powerMusic.play().catch(e => console.log('Power music error:', e));
                 
                 // Play energizer sound
                 playEnergizerSound();
@@ -359,13 +428,20 @@ function moveGhosts() {
         ghost.gridX = Math.round(ghost.x / GRID_SIZE);
         ghost.gridY = Math.round(ghost.y / GRID_SIZE);
         
-        // Calculate distance to player
-        const dx = player.x - ghost.x;
-        const dy = player.y - ghost.y;
-        const distance = Math.sqrt(dx * dx + dy * dy);
+        // Calculate distance to nearest player
+        const dxKiro = kiro.x - ghost.x;
+        const dyKiro = kiro.y - ghost.y;
+        const distanceKiro = Math.sqrt(dxKiro * dxKiro + dyKiro * dyKiro);
+        
+        const dxSamiro = samiro.x - ghost.x;
+        const dySamiro = samiro.y - ghost.y;
+        const distanceSamiro = Math.sqrt(dxSamiro * dxSamiro + dySamiro * dySamiro);
+        
+        const nearestPlayer = distanceKiro < distanceSamiro ? kiro : samiro;
+        const nearestDistance = Math.min(distanceKiro, distanceSamiro);
         
         let shouldChase = false;
-        if (distance < 100 && !powerMode) {
+        if (nearestDistance < 100 && !powerMode) {
             shouldChase = Math.random() < 0.6;
         }
         
@@ -390,7 +466,7 @@ function moveGhosts() {
                 
                 possibleDirections.forEach(dir => {
                     const nextPos = getNextGridPosition(ghost.gridX, ghost.gridY, dir);
-                    const dist = Math.abs(player.gridX - nextPos.x) + Math.abs(player.gridY - nextPos.y);
+                    const dist = Math.abs(nearestPlayer.gridX - nextPos.x) + Math.abs(nearestPlayer.gridY - nextPos.y);
                     if (dist < bestDist) {
                         bestDist = dist;
                         bestDir = dir;
@@ -430,74 +506,95 @@ function moveGhosts() {
                     ghost.y = ghost.gridY * GRID_SIZE;
                 }
             }
+            
+            // Teleport logic for left/right screen wrapping
+            if (ghost.x + GRID_SIZE <= 0) {
+                ghost.x = CANVAS_WIDTH - GRID_SIZE;
+            } else if (ghost.x >= CANVAS_WIDTH) {
+                ghost.x = 0;
+            }
         }
     });
 }
 
 function checkCollisions() {
-    ghosts.forEach((ghost, index) => {
-        // Check collision using distance (within half a grid cell)
-        const dx = ghost.x - player.x;
-        const dy = ghost.y - player.y;
-        const distance = Math.sqrt(dx * dx + dy * dy);
-        
-        if (distance < GRID_SIZE / 2) {
-            if (powerMode) {
-                // Eat ghost
-                const points = [200, 400, 800, 1600][ghostsEaten];
-                score += points;
-                ghostsEaten++;
-                updateUI();
+    // Check collisions for both players
+    [kiro, samiro].forEach((player, playerIndex) => {
+        ghosts.forEach((ghost, index) => {
+            // Check collision using distance (within half a grid cell)
+            const dx = ghost.x - player.x;
+            const dy = ghost.y - player.y;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+            
+            if (distance < GRID_SIZE / 2) {
+                if (powerMode) {
+                    // Eat ghost
+                    const points = [200, 400, 800, 1600][ghostsEaten];
+                    if (playerIndex === 0) {
+                        kiroScore += points;
+                    } else {
+                        samiroScore += points;
+                    }
+                    ghostsEaten++;
+                    updateUI();
                 
                 // Play ghost respawn sound
                 playGhostRespawnSound();
                 
                 // Respawn ghost
-                ghost.x = 9 * GRID_SIZE;
-                ghost.y = 9 * GRID_SIZE;
-                ghost.gridX = 9;
-                ghost.gridY = 9;
-            } else {
-                // Stop chomp sound
-                sounds.chomp.pause();
-                sounds.chomp.currentTime = 0;
-                isChomping = false;
-                
-                // Play death sound
-                sounds.death.currentTime = 0;
-                sounds.death.play().catch(e => console.log('Death sound error:', e));
-                
-                // Lose life
-                lives--;
-                updateUI();
-                
-                if (lives <= 0) {
-                    gameState = 'gameOver';
-                    showMessage('GAME OVER<br>Press any arrow key to restart');
+                    ghost.x = 9 * GRID_SIZE;
+                    ghost.y = 9 * GRID_SIZE;
+                    ghost.gridX = 9;
+                    ghost.gridY = 9;
                 } else {
-                    // Reset positions
-                    player.x = 9 * GRID_SIZE;
-                    player.y = 15 * GRID_SIZE;
-                    player.gridX = 9;
-                    player.gridY = 15;
-                    player.direction = null;
-                    player.nextDirection = null;
+                    // Stop chomp sound
+                    sounds.chomp.pause();
+                    sounds.chomp.currentTime = 0;
+                    isChomping = false;
                     
-                    ghosts.forEach((g, i) => {
-                        const gridPositions = [
-                            { x: 8, y: 9 },
-                            { x: 9, y: 9 },
-                            { x: 10, y: 9 },
-                            { x: 9, y: 10 }
-                        ];
-                        g.x = gridPositions[i].x * GRID_SIZE;
-                        g.y = gridPositions[i].y * GRID_SIZE;
-                        g.gridX = gridPositions[i].x;
-                        g.gridY = gridPositions[i].y;
-                    });
+                    // Play death sound
+                    sounds.death.currentTime = 0;
+                    sounds.death.play().catch(e => console.log('Death sound error:', e));
+                    
+                    // Lose life
+                    lives--;
+                    updateUI();
+                    
+                    if (lives <= 0) {
+                        gameState = 'gameOver';
+                        showMessage('GAME OVER<br>Press any arrow key to restart');
+                    } else {
+                        // Reset both players
+                        kiro.x = 1 * GRID_SIZE;
+                        kiro.y = 13 * GRID_SIZE;
+                        kiro.gridX = 1;
+                        kiro.gridY = 13;
+                        kiro.direction = null;
+                        kiro.nextDirection = null;
+                        
+                        samiro.x = 17 * GRID_SIZE;
+                        samiro.y = 13 * GRID_SIZE;
+                        samiro.gridX = 17;
+                        samiro.gridY = 13;
+                        samiro.direction = null;
+                        samiro.nextDirection = null;
+                        
+                        ghosts.forEach((g, i) => {
+                            const gridPositions = [
+                                { x: 8, y: 9 },
+                                { x: 9, y: 9 },
+                                { x: 10, y: 9 },
+                                { x: 9, y: 11 }
+                            ];
+                            g.x = gridPositions[i].x * GRID_SIZE;
+                            g.y = gridPositions[i].y * GRID_SIZE;
+                            g.gridX = gridPositions[i].x;
+                            g.gridY = gridPositions[i].y;
+                        });
+                    }
                 }
             }
-        }
+        });
     });
 }
 
@@ -565,14 +662,32 @@ function draw() {
         ctx.fill();
     });
     
-    // Draw player (Kiro)
+    // Draw Kiro
     if (kiroImage.complete) {
-        ctx.drawImage(kiroImage, player.x + 2, player.y + 2, GRID_SIZE - 4, GRID_SIZE - 4);
+        ctx.drawImage(kiroImage, kiro.x + 2, kiro.y + 2, GRID_SIZE - 4, GRID_SIZE - 4);
     } else {
         // Fallback if image not loaded
         ctx.fillStyle = '#790ECB';
         ctx.beginPath();
-        ctx.arc(player.x + GRID_SIZE / 2, player.y + GRID_SIZE / 2, GRID_SIZE / 2 - 2, 0, Math.PI * 2);
+        ctx.arc(kiro.x + GRID_SIZE / 2, kiro.y + GRID_SIZE / 2, GRID_SIZE / 2 - 2, 0, Math.PI * 2);
+        ctx.fill();
+    }
+    
+    // Draw Samiro (pink tinted)
+    if (kiroImage.complete) {
+        ctx.save();
+        ctx.globalAlpha = 0.8;
+        ctx.drawImage(kiroImage, samiro.x + 2, samiro.y + 2, GRID_SIZE - 4, GRID_SIZE - 4);
+        ctx.globalAlpha = 1.0;
+        // Add pink tint
+        ctx.fillStyle = 'rgba(255, 107, 157, 0.3)';
+        ctx.fillRect(samiro.x + 2, samiro.y + 2, GRID_SIZE - 4, GRID_SIZE - 4);
+        ctx.restore();
+    } else {
+        // Fallback if image not loaded
+        ctx.fillStyle = '#FF6B9D';
+        ctx.beginPath();
+        ctx.arc(samiro.x + GRID_SIZE / 2, samiro.y + GRID_SIZE / 2, GRID_SIZE / 2 - 2, 0, Math.PI * 2);
         ctx.fill();
     }
 }
@@ -595,11 +710,17 @@ function gameLoop(currentTime) {
                 powerModeTimer--;
                 if (powerModeTimer <= 0) {
                     powerMode = false;
+                    
+                    // Switch back to normal background music
+                    sounds.powerMusic.pause();
+                    sounds.powerMusic.currentTime = 0;
+                    sounds.bgMusic.play().catch(e => console.log('Background music error:', e));
                 }
             }
             
-            // Move player and ghosts every frame for smooth movement
-            movePlayer();
+            // Move both players and ghosts every frame for smooth movement
+            movePlayer(kiro, samiro, true);
+            movePlayer(samiro, kiro, false);
             moveGhosts();
             checkCollisions();
         }
