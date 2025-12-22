@@ -26,6 +26,54 @@ let lastDotEatenTime = 0;
 let chompCheckInterval = null;
 let lastFrameTime = 0;
 let deltaAccumulator = 0;
+let gameTimer = 0; // Track game time in frames
+
+// Bonus fruit state
+// Bonus fruit configuration
+const BONUS_FRUITS = [
+    { name: 'cherry', spawnTime: 15 * 60, points: 100 },
+    { name: 'strawberry', spawnTime: 30 * 60, points: 300 },
+    { name: 'orange', spawnTime: 45 * 60, points: 500 },
+    { name: 'apple', spawnTime: 60 * 60, points: 700 },
+    { name: 'melon', spawnTime: 75 * 60, points: 1000 },
+    { name: 'spaceship', spawnTime: 90 * 60, points: 2000 },
+    { name: 'bell', spawnTime: 105 * 60, points: 3000 },
+    { name: 'key', spawnTime: 120 * 60, points: 5000 }
+];
+
+// Active bonus fruits array
+let activeFruits = [];
+let spawnedFruits = new Set(); // Track which fruits have been spawned
+const FRUIT_SPEED = GHOST_SPEED / 2; // Half the speed of ghosts (twice as slow)
+
+// Hardcoded path for fruits: enter right tunnel, go around maze, exit left tunnel
+// Path is array of {x, y} grid positions
+const FRUIT_PATH = [
+    {x: 18, y: 9},  // Enter from right tunnel
+    {x: 17, y: 9},
+    {x: 16, y: 9},
+    {x: 15, y: 9},
+    {x: 14, y: 9},
+    {x: 14, y: 10},
+    {x: 14, y: 11}, // Go down (only to row 11)
+    {x: 13, y: 11},
+    {x: 12, y: 11},
+    {x: 11, y: 11},
+    {x: 10, y: 11},
+    {x: 9, y: 11},
+    {x: 8, y: 11},
+    {x: 7, y: 11},
+    {x: 6, y: 11},
+    {x: 5, y: 11},
+    {x: 4, y: 11}, // Go left
+    {x: 4, y: 10},
+    {x: 4, y: 9},  // Go up to left tunnel
+    {x: 3, y: 9},
+    {x: 2, y: 9},
+    {x: 1, y: 9},
+    {x: 0, y: 9},
+    {x: -1, y: 9}  // Exit left
+];
 
 // Canvas setup
 const canvas = document.getElementById('gameCanvas');
@@ -175,6 +223,11 @@ function initGame() {
     powerMode = false;
     powerModeTimer = 0;
     ghostsEaten = 0;
+    gameTimer = 0;
+    
+    // Reset bonus fruits
+    activeFruits = [];
+    spawnedFruits = new Set();
     
     updateUI();
 }
@@ -517,6 +570,353 @@ function moveGhosts() {
     });
 }
 
+// Move fruit along hardcoded path
+function moveFruitAlongPath(fruit) {
+    if (!fruit || !fruit.active) return;
+    
+    // Get target position from path
+    const target = FRUIT_PATH[fruit.pathIndex];
+    const targetX = target.x * GRID_SIZE;
+    const targetY = target.y * GRID_SIZE;
+    
+    // Calculate direction to target
+    const dx = targetX - fruit.x;
+    const dy = targetY - fruit.y;
+    const distance = Math.sqrt(dx * dx + dy * dy);
+    
+    // If close enough to target, move to next path point
+    if (distance < FRUIT_SPEED) {
+        fruit.x = targetX;
+        fruit.y = targetY;
+        fruit.pathIndex++;
+        
+        // Check if reached end of path
+        if (fruit.pathIndex >= FRUIT_PATH.length) {
+            fruit.active = false;
+        }
+    } else {
+        // Move towards target
+        fruit.x += (dx / distance) * FRUIT_SPEED;
+        fruit.y += (dy / distance) * FRUIT_SPEED;
+    }
+}
+
+// Spawn and move bonus fruits
+function updateBonusFruits() {
+    // Check for new fruit spawns
+    BONUS_FRUITS.forEach(fruitConfig => {
+        if (gameTimer >= fruitConfig.spawnTime && !spawnedFruits.has(fruitConfig.name)) {
+            activeFruits.push({
+                name: fruitConfig.name,
+                points: fruitConfig.points,
+                x: CANVAS_WIDTH,
+                y: 9 * GRID_SIZE,
+                pathIndex: 0,
+                active: true
+            });
+            spawnedFruits.add(fruitConfig.name);
+        }
+    });
+    
+    // Move all active fruits along path
+    activeFruits.forEach(fruit => {
+        moveFruitAlongPath(fruit);
+    });
+    
+    // Remove inactive fruits
+    activeFruits = activeFruits.filter(fruit => fruit.active);
+}
+
+// Draw cherry (8-bit style SVG-like)
+function drawCherry(x, y) {
+    // Stem
+    ctx.fillStyle = '#8B4513';
+    ctx.fillRect(x + 12, y + 2, 3, 8);
+    ctx.fillRect(x + 15, y + 4, 5, 3);
+    
+    // Left cherry
+    ctx.fillStyle = '#FF0000';
+    ctx.beginPath();
+    ctx.arc(x + 8, y + 18, 8, 0, Math.PI * 2);
+    ctx.fill();
+    
+    // Left cherry highlight
+    ctx.fillStyle = '#FF6666';
+    ctx.beginPath();
+    ctx.arc(x + 5, y + 15, 3, 0, Math.PI * 2);
+    ctx.fill();
+    
+    // Right cherry
+    ctx.fillStyle = '#FF0000';
+    ctx.beginPath();
+    ctx.arc(x + 22, y + 18, 8, 0, Math.PI * 2);
+    ctx.fill();
+    
+    // Right cherry highlight
+    ctx.fillStyle = '#FF6666';
+    ctx.beginPath();
+    ctx.arc(x + 19, y + 15, 3, 0, Math.PI * 2);
+    ctx.fill();
+}
+
+// Draw strawberry (big fat 8-bit style)
+function drawStrawberry(x, y) {
+    const cx = x + GRID_SIZE / 2; // Center x
+    const cy = y + GRID_SIZE / 2; // Center y
+    
+    // Green leaves/stem at top
+    ctx.fillStyle = '#2E7D32';
+    ctx.beginPath();
+    ctx.moveTo(cx - 8, cy - 8);
+    ctx.lineTo(cx - 12, cy - 14);
+    ctx.lineTo(cx - 4, cy - 10);
+    ctx.closePath();
+    ctx.fill();
+    
+    ctx.beginPath();
+    ctx.moveTo(cx, cy - 10);
+    ctx.lineTo(cx, cy - 16);
+    ctx.lineTo(cx + 4, cy - 10);
+    ctx.closePath();
+    ctx.fill();
+    
+    ctx.beginPath();
+    ctx.moveTo(cx + 8, cy - 8);
+    ctx.lineTo(cx + 12, cy - 14);
+    ctx.lineTo(cx + 4, cy - 10);
+    ctx.closePath();
+    ctx.fill();
+    
+    // Big fat strawberry body (rounded triangle shape)
+    ctx.fillStyle = '#E53935';
+    ctx.beginPath();
+    ctx.moveTo(cx, cy + 12); // Bottom point
+    ctx.quadraticCurveTo(cx - 14, cy + 8, cx - 12, cy - 4); // Left curve
+    ctx.quadraticCurveTo(cx - 10, cy - 10, cx, cy - 8); // Top left
+    ctx.quadraticCurveTo(cx + 10, cy - 10, cx + 12, cy - 4); // Top right
+    ctx.quadraticCurveTo(cx + 14, cy + 8, cx, cy + 12); // Right curve back to bottom
+    ctx.closePath();
+    ctx.fill();
+    
+    // Seeds (yellow dots)
+    ctx.fillStyle = '#FFEB3B';
+    ctx.beginPath();
+    ctx.arc(cx - 6, cy - 2, 1.5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(cx + 6, cy - 2, 1.5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(cx - 4, cy + 4, 1.5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(cx + 4, cy + 4, 1.5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(cx, cy + 1, 1.5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(cx, cy + 8, 1.5, 0, Math.PI * 2);
+    ctx.fill();
+    
+    // Highlight
+    ctx.fillStyle = '#EF5350';
+    ctx.beginPath();
+    ctx.arc(cx - 4, cy - 4, 3, 0, Math.PI * 2);
+    ctx.fill();
+}
+
+// Draw orange (8-bit style)
+function drawOrange(x, y) {
+    const cx = x + GRID_SIZE / 2;
+    const cy = y + GRID_SIZE / 2;
+    
+    // Orange body
+    ctx.fillStyle = '#FF9800';
+    ctx.beginPath();
+    ctx.arc(cx, cy, 12, 0, Math.PI * 2);
+    ctx.fill();
+    
+    // Stem
+    ctx.fillStyle = '#4CAF50';
+    ctx.fillRect(cx - 2, cy - 14, 4, 4);
+    
+    // Leaf
+    ctx.beginPath();
+    ctx.ellipse(cx + 5, cy - 12, 4, 2, Math.PI / 4, 0, Math.PI * 2);
+    ctx.fill();
+    
+    // Highlight
+    ctx.fillStyle = '#FFB74D';
+    ctx.beginPath();
+    ctx.arc(cx - 4, cy - 4, 4, 0, Math.PI * 2);
+    ctx.fill();
+}
+
+// Draw apple (8-bit style)
+function drawApple(x, y) {
+    const cx = x + GRID_SIZE / 2;
+    const cy = y + GRID_SIZE / 2;
+    
+    // Apple body
+    ctx.fillStyle = '#F44336';
+    ctx.beginPath();
+    ctx.arc(cx, cy + 2, 11, 0, Math.PI * 2);
+    ctx.fill();
+    
+    // Top indent
+    ctx.fillStyle = '#000';
+    ctx.beginPath();
+    ctx.arc(cx, cy - 8, 3, 0, Math.PI);
+    ctx.fill();
+    
+    // Stem
+    ctx.fillStyle = '#795548';
+    ctx.fillRect(cx - 1, cy - 14, 3, 6);
+    
+    // Leaf
+    ctx.fillStyle = '#4CAF50';
+    ctx.beginPath();
+    ctx.ellipse(cx + 6, cy - 10, 5, 3, Math.PI / 4, 0, Math.PI * 2);
+    ctx.fill();
+    
+    // Highlight
+    ctx.fillStyle = '#EF5350';
+    ctx.beginPath();
+    ctx.arc(cx - 4, cy - 2, 3, 0, Math.PI * 2);
+    ctx.fill();
+}
+
+// Draw melon (8-bit style)
+function drawMelon(x, y) {
+    const cx = x + GRID_SIZE / 2;
+    const cy = y + GRID_SIZE / 2;
+    
+    // Melon body (oval)
+    ctx.fillStyle = '#8BC34A';
+    ctx.beginPath();
+    ctx.ellipse(cx, cy, 13, 10, 0, 0, Math.PI * 2);
+    ctx.fill();
+    
+    // Stripes
+    ctx.strokeStyle = '#689F38';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(cx - 10, cy);
+    ctx.quadraticCurveTo(cx, cy - 8, cx + 10, cy);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(cx - 10, cy);
+    ctx.quadraticCurveTo(cx, cy + 8, cx + 10, cy);
+    ctx.stroke();
+    
+    // Highlight
+    ctx.fillStyle = '#AED581';
+    ctx.beginPath();
+    ctx.arc(cx - 5, cy - 3, 3, 0, Math.PI * 2);
+    ctx.fill();
+}
+
+// Draw spaceship (8-bit style)
+function drawSpaceship(x, y) {
+    const cx = x + GRID_SIZE / 2;
+    const cy = y + GRID_SIZE / 2;
+    
+    // Body
+    ctx.fillStyle = '#9E9E9E';
+    ctx.beginPath();
+    ctx.ellipse(cx, cy, 12, 6, 0, 0, Math.PI * 2);
+    ctx.fill();
+    
+    // Dome
+    ctx.fillStyle = '#2196F3';
+    ctx.beginPath();
+    ctx.arc(cx, cy - 4, 6, Math.PI, 0);
+    ctx.fill();
+    
+    // Lights
+    ctx.fillStyle = '#FFEB3B';
+    ctx.beginPath();
+    ctx.arc(cx - 8, cy, 2, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(cx, cy + 2, 2, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(cx + 8, cy, 2, 0, Math.PI * 2);
+    ctx.fill();
+    
+    // Bottom glow
+    ctx.fillStyle = '#FF5722';
+    ctx.beginPath();
+    ctx.ellipse(cx, cy + 8, 4, 2, 0, 0, Math.PI * 2);
+    ctx.fill();
+}
+
+// Draw liberty bell (8-bit style)
+function drawBell(x, y) {
+    const cx = x + GRID_SIZE / 2;
+    const cy = y + GRID_SIZE / 2;
+    
+    // Bell body
+    ctx.fillStyle = '#FFD700';
+    ctx.beginPath();
+    ctx.moveTo(cx - 10, cy + 10);
+    ctx.quadraticCurveTo(cx - 12, cy - 5, cx - 6, cy - 10);
+    ctx.lineTo(cx + 6, cy - 10);
+    ctx.quadraticCurveTo(cx + 12, cy - 5, cx + 10, cy + 10);
+    ctx.closePath();
+    ctx.fill();
+    
+    // Top
+    ctx.fillStyle = '#FFC107';
+    ctx.fillRect(cx - 4, cy - 14, 8, 5);
+    
+    // Clapper
+    ctx.fillStyle = '#795548';
+    ctx.beginPath();
+    ctx.arc(cx, cy + 8, 3, 0, Math.PI * 2);
+    ctx.fill();
+    
+    // Highlight
+    ctx.fillStyle = '#FFECB3';
+    ctx.beginPath();
+    ctx.arc(cx - 5, cy - 4, 3, 0, Math.PI * 2);
+    ctx.fill();
+}
+
+// Draw golden key (8-bit style)
+function drawKey(x, y) {
+    const cx = x + GRID_SIZE / 2;
+    const cy = y + GRID_SIZE / 2;
+    
+    // Key head (circle)
+    ctx.fillStyle = '#FFD700';
+    ctx.beginPath();
+    ctx.arc(cx - 4, cy - 4, 8, 0, Math.PI * 2);
+    ctx.fill();
+    
+    // Key head hole
+    ctx.fillStyle = '#000';
+    ctx.beginPath();
+    ctx.arc(cx - 4, cy - 4, 3, 0, Math.PI * 2);
+    ctx.fill();
+    
+    // Key shaft
+    ctx.fillStyle = '#FFD700';
+    ctx.fillRect(cx, cy - 2, 12, 4);
+    
+    // Key teeth
+    ctx.fillRect(cx + 8, cy + 2, 3, 5);
+    ctx.fillRect(cx + 4, cy + 2, 3, 3);
+    
+    // Highlight
+    ctx.fillStyle = '#FFECB3';
+    ctx.beginPath();
+    ctx.arc(cx - 6, cy - 6, 2, 0, Math.PI * 2);
+    ctx.fill();
+}
+
 function checkCollisions() {
     // Check collisions for both players
     [kiro, samiro].forEach((player, playerIndex) => {
@@ -592,6 +992,26 @@ function checkCollisions() {
                             g.gridY = gridPositions[i].y;
                         });
                     }
+                }
+            }
+        });
+        
+        // Check collision with all active bonus fruits
+        activeFruits.forEach(fruit => {
+            if (fruit.active) {
+                const dx = fruit.x - player.x;
+                const dy = fruit.y - player.y;
+                const distance = Math.sqrt(dx * dx + dy * dy);
+                
+                if (distance < GRID_SIZE / 2) {
+                    if (playerIndex === 0) {
+                        kiroScore += fruit.points;
+                    } else {
+                        samiroScore += fruit.points;
+                    }
+                    fruit.active = false;
+                    playEnergizerSound();
+                    updateUI();
                 }
             }
         });
@@ -690,6 +1110,22 @@ function draw() {
         ctx.arc(samiro.x + GRID_SIZE / 2, samiro.y + GRID_SIZE / 2, GRID_SIZE / 2 - 2, 0, Math.PI * 2);
         ctx.fill();
     }
+    
+    // Draw all active bonus fruits
+    activeFruits.forEach(fruit => {
+        if (fruit.active) {
+            switch(fruit.name) {
+                case 'cherry': drawCherry(fruit.x, fruit.y); break;
+                case 'strawberry': drawStrawberry(fruit.x, fruit.y); break;
+                case 'orange': drawOrange(fruit.x, fruit.y); break;
+                case 'apple': drawApple(fruit.x, fruit.y); break;
+                case 'melon': drawMelon(fruit.x, fruit.y); break;
+                case 'spaceship': drawSpaceship(fruit.x, fruit.y); break;
+                case 'bell': drawBell(fruit.x, fruit.y); break;
+                case 'key': drawKey(fruit.x, fruit.y); break;
+            }
+        }
+    });
 }
 
 // Game loop with delta time for consistent speed across devices
@@ -718,10 +1154,14 @@ function gameLoop(currentTime) {
                 }
             }
             
+            // Increment game timer
+            gameTimer++;
+            
             // Move both players and ghosts every frame for smooth movement
             movePlayer(kiro, samiro, true);
             movePlayer(samiro, kiro, false);
             moveGhosts();
+            updateBonusFruits();
             checkCollisions();
         }
         
