@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Pac-Kiro Game</title>
     <link rel="stylesheet" href="style.css">
 </head>
@@ -28,6 +28,22 @@
         </div>
         <canvas id="gameCanvas"></canvas>
         <div id="message" class="message"></div>
+        
+        <!-- Mobile Touch Controls -->
+        <div id="mobileControls" class="mobile-controls">
+            <div class="joystick-container joystick-left">
+                <div class="joystick-label">KIRO</div>
+                <div class="joystick" id="joystickKiro">
+                    <div class="joystick-knob" id="knobKiro"></div>
+                </div>
+            </div>
+            <div class="joystick-container joystick-right">
+                <div class="joystick-label">SAMIRO</div>
+                <div class="joystick" id="joystickSamiro">
+                    <div class="joystick-knob" id="knobSamiro"></div>
+                </div>
+            </div>
+        </div>
     </div>
     <script src="game.js"></script>
 </body>

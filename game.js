@@ -11,6 +11,9 @@ const POWER_DURATION = 300; // frames (5 seconds at 60fps)
 const TARGET_FPS = 60;
 const FRAME_TIME = 1000 / TARGET_FPS; // milliseconds per frame
 
+// Mobile detection
+const isMobile = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
+
 // Game state
 let gameState = 'start';
 let kiroScore = 0;
@@ -28,6 +31,10 @@ let lastFrameTime = 0;
 let deltaAccumulator = 0;
 let gameTimer = 0; // Track game time in frames
 
+// Mobile joystick state
+let kiroJoystickDirection = null;
+let samiroJoystickDirection = null;
+
 // Bonus fruit state
 // Bonus fruit configuration
 const BONUS_FRUITS = [
@@ -44,6 +51,9 @@ const BONUS_FRUITS = [
 // Active bonus fruits array
 let activeFruits = [];
 let spawnedFruits = new Set(); // Track which fruits have been spawned
+
+// Floating score text array
+let floatingScores = [];
 const FRUIT_SPEED = GHOST_SPEED / 2; // Half the speed of ghosts (twice as slow)
 
 // Hardcoded path for fruits: enter right tunnel, go around maze, exit left tunnel
@@ -80,6 +90,18 @@ const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
 canvas.width = CANVAS_WIDTH;
 canvas.height = CANVAS_HEIGHT;
+
+// Mobile canvas scaling
+function resizeCanvasForMobile() {
+    if (isMobile) {
+        const maxWidth = window.innerWidth - 20;
+        const scale = Math.min(1, maxWidth / CANVAS_WIDTH);
+        canvas.style.width = (CANVAS_WIDTH * scale) + 'px';
+        canvas.style.height = (CANVAS_HEIGHT * scale) + 'px';
+    }
+}
+resizeCanvasForMobile();
+window.addEventListener('resize', resizeCanvasForMobile);
 
 // Load Kiro logo
 const kiroImage = new Image();
@@ -228,6 +250,7 @@ function initGame() {
     // Reset bonus fruits
     activeFruits = [];
     spawnedFruits = new Set();
+    floatingScores = [];
     
     updateUI();
 }
@@ -308,10 +331,157 @@ document.addEventListener('keydown', (e) => {
     }
 });
 
+// Mobile touch controls
+function startGame() {
+    startBackgroundMusic();
+    
+    if (gameState === 'start') {
+        gameState = 'playing';
+        hideMessage();
+        if (!chompCheckInterval) {
+            chompCheckInterval = setInterval(checkChompSound, 50);
+        }
+    } else if (gameState === 'levelComplete') {
+        gameState = 'playing';
+        hideMessage();
+    } else if (gameState === 'gameOver') {
+        kiroScore = 0;
+        samiroScore = 0;
+        lives = 3;
+        level = 1;
+        resetLevel();
+        hideMessage();
+    }
+}
+
+// Mobile tap to start
+if (isMobile) {
+    document.addEventListener('touchstart', (e) => {
+        if (gameState === 'start' || gameState === 'levelComplete' || gameState === 'gameOver') {
+            e.preventDefault();
+            startGame();
+        }
+    }, { passive: false });
+}
+
+// Joystick setup
+function setupJoystick(joystickId, knobId, isKiro) {
+    const joystick = document.getElementById(joystickId);
+    const knob = document.getElementById(knobId);
+    
+    if (!joystick || !knob) return;
+    
+    const joystickRect = joystick.getBoundingClientRect();
+    const centerX = joystickRect.width / 2;
+    const centerY = joystickRect.height / 2;
+    const maxDistance = joystickRect.width / 2 - 25;
+    
+    let activeTouch = null;
+    
+    function getDirectionFromPosition(x, y) {
+        const dx = x - centerX;
+        const dy = y - centerY;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+        
+        if (distance < 15) return null; // Dead zone
+        
+        const angle = Math.atan2(dy, dx) * 180 / Math.PI;
+        
+        if (angle >= -45 && angle < 45) return 'right';
+        if (angle >= 45 && angle < 135) return 'down';
+        if (angle >= -135 && angle < -45) return 'up';
+        return 'left';
+    }
+    
+    function updateKnobPosition(x, y) {
+        const dx = x - centerX;
+        const dy = y - centerY;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+        
+        let knobX = dx;
+        let knobY = dy;
+        
+        if (distance > maxDistance) {
+            knobX = (dx / distance) * maxDistance;
+            knobY = (dy / distance) * maxDistance;
+        }
+        
+        knob.style.transform = `translate(calc(-50% + ${knobX}px), calc(-50% + ${knobY}px))`;
+    }
+    
+    function handleTouch(e) {
+        e.preventDefault();
+        
+        // Start game on first touch
+        if (gameState !== 'playing') {
+            startGame();
+        }
+        
+        const touch = e.touches[0];
+        const rect = joystick.getBoundingClientRect();
+        const x = touch.clientX - rect.left;
+        const y = touch.clientY - rect.top;
+        
+        updateKnobPosition(x, y);
+        
+        const direction = getDirectionFromPosition(x, y);
+        if (isKiro) {
+            kiroJoystickDirection = direction;
+            if (direction) kiro.nextDirection = direction;
+        } else {
+            samiroJoystickDirection = direction;
+            if (direction) samiro.nextDirection = direction;
+        }
+    }
+    
+    function handleTouchEnd(e) {
+        e.preventDefault();
+        knob.style.transform = 'translate(-50%, -50%)';
+        if (isKiro) {
+            kiroJoystickDirection = null;
+        } else {
+            samiroJoystickDirection = null;
+        }
+    }
+    
+    joystick.addEventListener('touchstart', handleTouch, { passive: false });
+    joystick.addEventListener('touchmove', handleTouch, { passive: false });
+    joystick.addEventListener('touchend', handleTouchEnd, { passive: false });
+    joystick.addEventListener('touchcancel', handleTouchEnd, { passive: false });
+}
+
+// Initialize joysticks on mobile
+if (isMobile) {
+    setupJoystick('joystickKiro', 'knobKiro', true);
+    setupJoystick('joystickSamiro', 'knobSamiro', false);
+}
+
+// Ghost spawn zone boundaries (the center area where ghosts start)
+const GHOST_SPAWN_ZONE = {
+    minX: 7,
+    maxX: 11,
+    minY: 8,
+    maxY: 10
+};
+
+// Check if a position is inside the ghost spawn zone (for player blocking)
+function isInGhostSpawnZone(gridX, gridY) {
+    return gridX >= GHOST_SPAWN_ZONE.minX && 
+           gridX <= GHOST_SPAWN_ZONE.maxX && 
+           gridY >= GHOST_SPAWN_ZONE.minY && 
+           gridY <= GHOST_SPAWN_ZONE.maxY;
+}
+
 // Movement functions
 function canMove(gridX, gridY) {
     if (gridX < 0 || gridX >= GRID_WIDTH || gridY < 0 || gridY >= GRID_HEIGHT) return false;
     return maze[gridY][gridX] !== 1;
+}
+
+// Player-specific movement check (blocks ghost spawn zone)
+function canPlayerMove(gridX, gridY) {
+    if (!canMove(gridX, gridY)) return false;
+    return !isInGhostSpawnZone(gridX, gridY);
 }
 
 function movePlayer(player, otherPlayer, isKiro) {
@@ -324,7 +494,7 @@ function movePlayer(player, otherPlayer, isKiro) {
     // Try to change direction when aligned with grid
     if (player.nextDirection && player.x % GRID_SIZE === 0 && player.y % GRID_SIZE === 0) {
         const nextGridPos = getNextGridPosition(player.gridX, player.gridY, player.nextDirection);
-        if (canMove(nextGridPos.x, nextGridPos.y)) {
+        if (canPlayerMove(nextGridPos.x, nextGridPos.y)) {
             player.direction = player.nextDirection;
             player.nextDirection = null;
         }
@@ -348,7 +518,7 @@ function movePlayer(player, otherPlayer, isKiro) {
         player.x += velocityX;
         player.y += velocityY;
         
-        // Check if the new position collides with walls (check all four corners of bounding box)
+        // Check if the new position collides with walls or ghost spawn zone (check all four corners of bounding box)
         const topLeftGridX = Math.floor(player.x / GRID_SIZE);
         const topLeftGridY = Math.floor(player.y / GRID_SIZE);
         const topRightGridX = Math.floor((player.x + GRID_SIZE - 1) / GRID_SIZE);
@@ -358,11 +528,11 @@ function movePlayer(player, otherPlayer, isKiro) {
         const bottomRightGridX = Math.floor((player.x + GRID_SIZE - 1) / GRID_SIZE);
         const bottomRightGridY = Math.floor((player.y + GRID_SIZE - 1) / GRID_SIZE);
         
-        // Check if any corner collides with a wall
-        const hasCollision = !canMove(topLeftGridX, topLeftGridY) ||
-                            !canMove(topRightGridX, topRightGridY) ||
-                            !canMove(bottomLeftGridX, bottomLeftGridY) ||
-                            !canMove(bottomRightGridX, bottomRightGridY);
+        // Check if any corner collides with a wall or ghost spawn zone
+        const hasCollision = !canPlayerMove(topLeftGridX, topLeftGridY) ||
+                            !canPlayerMove(topRightGridX, topRightGridY) ||
+                            !canPlayerMove(bottomLeftGridX, bottomLeftGridY) ||
+                            !canPlayerMove(bottomRightGridX, bottomRightGridY);
         
         // Check for collision with other player
         if (otherPlayer) {
@@ -371,11 +541,22 @@ function movePlayer(player, otherPlayer, isKiro) {
             const playerDistance = Math.sqrt(dx * dx + dy * dy);
             
             if (playerDistance < GRID_SIZE) {
-                // Players collided - stop both
+                // Players collided - reverse both directions (bounce off each other)
                 player.x = prevX;
                 player.y = prevY;
-                player.direction = null;
-                otherPlayer.direction = null;
+                
+                // Reverse current player's direction
+                if (player.direction === 'up') player.direction = 'down';
+                else if (player.direction === 'down') player.direction = 'up';
+                else if (player.direction === 'left') player.direction = 'right';
+                else if (player.direction === 'right') player.direction = 'left';
+                
+                // Reverse other player's direction
+                if (otherPlayer.direction === 'up') otherPlayer.direction = 'down';
+                else if (otherPlayer.direction === 'down') otherPlayer.direction = 'up';
+                else if (otherPlayer.direction === 'left') otherPlayer.direction = 'right';
+                else if (otherPlayer.direction === 'right') otherPlayer.direction = 'left';
+                
                 return;
             }
         }
@@ -625,6 +806,27 @@ function updateBonusFruits() {
     
     // Remove inactive fruits
     activeFruits = activeFruits.filter(fruit => fruit.active);
+}
+
+// Spawn a floating score text at a position
+function spawnFloatingScore(x, y, points) {
+    floatingScores.push({
+        x: x + GRID_SIZE / 2,
+        y: y + GRID_SIZE / 2,
+        points: points,
+        timer: 60, // 1 second at 60fps
+        startY: y + GRID_SIZE / 2
+    });
+}
+
+// Update floating scores (move up and fade out)
+function updateFloatingScores() {
+    floatingScores.forEach(score => {
+        score.y -= 0.5; // Float upward
+        score.timer--;
+    });
+    // Remove expired scores
+    floatingScores = floatingScores.filter(score => score.timer > 0);
 }
 
 // Draw cherry (8-bit style SVG-like)
@@ -937,6 +1139,9 @@ function checkCollisions() {
                     }
                     ghostsEaten++;
                     updateUI();
+                    
+                    // Spawn floating score
+                    spawnFloatingScore(ghost.x, ghost.y, points);
                 
                 // Play ghost respawn sound
                 playGhostRespawnSound();
@@ -1009,6 +1214,10 @@ function checkCollisions() {
                     } else {
                         samiroScore += fruit.points;
                     }
+                    
+                    // Spawn floating score
+                    spawnFloatingScore(fruit.x, fruit.y, fruit.points);
+                    
                     fruit.active = false;
                     playEnergizerSound();
                     updateUI();
@@ -1126,6 +1335,21 @@ function draw() {
             }
         }
     });
+    
+    // Draw floating scores
+    floatingScores.forEach(score => {
+        const alpha = score.timer / 60; // Fade out over time
+        ctx.save();
+        ctx.globalAlpha = alpha;
+        ctx.fillStyle = '#FFFFFF';
+        ctx.font = 'bold 14px Arial';
+        ctx.textAlign = 'center';
+        ctx.strokeStyle = '#000000';
+        ctx.lineWidth = 3;
+        ctx.strokeText(score.points.toString(), score.x, score.y);
+        ctx.fillText(score.points.toString(), score.x, score.y);
+        ctx.restore();
+    });
 }
 
 // Game loop with delta time for consistent speed across devices
@@ -1162,6 +1386,7 @@ function gameLoop(currentTime) {
             movePlayer(samiro, kiro, false);
             moveGhosts();
             updateBonusFruits();
+            updateFloatingScores();
             checkCollisions();
         }
         
