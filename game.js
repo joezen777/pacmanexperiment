@@ -11,6 +11,9 @@ const POWER_DURATION = 300; // frames (5 seconds at 60fps)
 const TARGET_FPS = 60;
 const FRAME_TIME = 1000 / TARGET_FPS; // milliseconds per frame
 
+// Mobile detection
+const isMobile = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
+
 // Game state
 let gameState = 'start';
 let kiroScore = 0;
@@ -27,6 +30,10 @@ let chompCheckInterval = null;
 let lastFrameTime = 0;
 let deltaAccumulator = 0;
 let gameTimer = 0; // Track game time in frames
+
+// Mobile joystick state
+let kiroJoystickDirection = null;
+let samiroJoystickDirection = null;
 
 // Bonus fruit state
 // Bonus fruit configuration
@@ -80,6 +87,18 @@ const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
 canvas.width = CANVAS_WIDTH;
 canvas.height = CANVAS_HEIGHT;
+
+// Mobile canvas scaling
+function resizeCanvasForMobile() {
+    if (isMobile) {
+        const maxWidth = window.innerWidth - 20;
+        const scale = Math.min(1, maxWidth / CANVAS_WIDTH);
+        canvas.style.width = (CANVAS_WIDTH * scale) + 'px';
+        canvas.style.height = (CANVAS_HEIGHT * scale) + 'px';
+    }
+}
+resizeCanvasForMobile();
+window.addEventListener('resize', resizeCanvasForMobile);
 
 // Load Kiro logo
 const kiroImage = new Image();
@@ -307,6 +326,131 @@ document.addEventListener('keydown', (e) => {
         if (e.key === 'ArrowRight' || e.key === 'l') samiro.nextDirection = 'right';
     }
 });
+
+// Mobile touch controls
+function startGame() {
+    startBackgroundMusic();
+    
+    if (gameState === 'start') {
+        gameState = 'playing';
+        hideMessage();
+        if (!chompCheckInterval) {
+            chompCheckInterval = setInterval(checkChompSound, 50);
+        }
+    } else if (gameState === 'levelComplete') {
+        gameState = 'playing';
+        hideMessage();
+    } else if (gameState === 'gameOver') {
+        kiroScore = 0;
+        samiroScore = 0;
+        lives = 3;
+        level = 1;
+        resetLevel();
+        hideMessage();
+    }
+}
+
+// Mobile tap to start
+if (isMobile) {
+    document.addEventListener('touchstart', (e) => {
+        if (gameState === 'start' || gameState === 'levelComplete' || gameState === 'gameOver') {
+            e.preventDefault();
+            startGame();
+        }
+    }, { passive: false });
+}
+
+// Joystick setup
+function setupJoystick(joystickId, knobId, isKiro) {
+    const joystick = document.getElementById(joystickId);
+    const knob = document.getElementById(knobId);
+    
+    if (!joystick || !knob) return;
+    
+    const joystickRect = joystick.getBoundingClientRect();
+    const centerX = joystickRect.width / 2;
+    const centerY = joystickRect.height / 2;
+    const maxDistance = joystickRect.width / 2 - 25;
+    
+    let activeTouch = null;
+    
+    function getDirectionFromPosition(x, y) {
+        const dx = x - centerX;
+        const dy = y - centerY;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+        
+        if (distance < 15) return null; // Dead zone
+        
+        const angle = Math.atan2(dy, dx) * 180 / Math.PI;
+        
+        if (angle >= -45 && angle < 45) return 'right';
+        if (angle >= 45 && angle < 135) return 'down';
+        if (angle >= -135 && angle < -45) return 'up';
+        return 'left';
+    }
+    
+    function updateKnobPosition(x, y) {
+        const dx = x - centerX;
+        const dy = y - centerY;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+        
+        let knobX = dx;
+        let knobY = dy;
+        
+        if (distance > maxDistance) {
+            knobX = (dx / distance) * maxDistance;
+            knobY = (dy / distance) * maxDistance;
+        }
+        
+        knob.style.transform = `translate(calc(-50% + ${knobX}px), calc(-50% + ${knobY}px))`;
+    }
+    
+    function handleTouch(e) {
+        e.preventDefault();
+        
+        // Start game on first touch
+        if (gameState !== 'playing') {
+            startGame();
+        }
+        
+        const touch = e.touches[0];
+        const rect = joystick.getBoundingClientRect();
+        const x = touch.clientX - rect.left;
+        const y = touch.clientY - rect.top;
+        
+        updateKnobPosition(x, y);
+        
+        const direction = getDirectionFromPosition(x, y);
+        if (isKiro) {
+            kiroJoystickDirection = direction;
+            if (direction) kiro.nextDirection = direction;
+        } else {
+            samiroJoystickDirection = direction;
+            if (direction) samiro.nextDirection = direction;
+        }
+    }
+    
+    function handleTouchEnd(e) {
+        e.preventDefault();
+        knob.style.transform = 'translate(-50%, -50%)';
+        if (isKiro) {
+            kiroJoystickDirection = null;
+        } else {
+            samiroJoystickDirection = null;
+        }
+    }
+    
+    joystick.addEventListener('touchstart', handleTouch, { passive: false });
+    joystick.addEventListener('touchmove', handleTouch, { passive: false });
+    joystick.addEventListener('touchend', handleTouchEnd, { passive: false });
+    joystick.addEventListener('touchcancel', handleTouchEnd, { passive: false });
+}
+
+// Initialize joysticks on mobile
+if (isMobile) {
+    setupJoystick('joystickKiro', 'knobKiro', true);
+    setupJoystick('joystickSamiro', 'knobSamiro', false);
+}
 
 // Movement functions
 function canMove(gridX, gridY) {
